@@ -2,27 +2,16 @@ from typing import Self
 
 from quadrinho import Quadrinho
 import quadrinho
+import sqlite3
+
 
 class Loja:
     
 
     def __init__(self):
         self.caixa = 0.0
-        self.conta = [
-            Quadrinho("Batman: O Cavaleiro das Trevas", "Frank Miller", "Panini", "1986", 25),
-            Quadrinho("Watchmen", "Alan Moore", "DC Comics", "1986", 30),
-            Quadrinho("Spider-Man: Blue", "Jeph Loeb", "Marvel", "2002", 80),
-            Quadrinho("Mulher Maravilha: Sangue", "Brian Azzarello", "Panini", "2012", 40)
-        ]
-        self.conta.append(Quadrinho("Watchmen - Edição Definitiva", "Alan Moore", "1986", 190.00))
-        self.conta.append(Quadrinho("Sandman: Edição Absoluta Vol. 1", "Neil Gaiman", "1989", 350.00))
-        self.conta.append(Quadrinho("Saga - Capa Dura Vol. 1", "Brian K. Vaughan", "2012", 140.00))
-        self.conta.append(Quadrinho("Akira - Coleção Completa Box", "Katsuhiro Otomo", "1982", 480.00))
-
-        # Quadrinhos acima de R$ 1.000 (Raridades)
-        self.conta.append(Quadrinho("Action Comics #1", "Jerry Siegel", "1938", 1250.00))
-        self.conta.append(Quadrinho("Marvel Comics #1", "Stan Lee", "1939", 1100.00))
-        self.conta.append(Quadrinho("Batman #1 - Edição Autografada", "Bob Kane", "1940", 2500.00))
+        self.conn = sqlite3.connect("loja.db")
+        self.cursor = self.conn.cursor()
         self.historicos_venda = []
         self.cupons_gerados = 0
 
@@ -32,47 +21,53 @@ class Loja:
         editora = input("Digite a editora do quadrinho: ")
         ano = input("Digite o ano do quadrinho: ")
         preco = int(input("Digite o preço do quadrinho: "))
-        quadrinho = Quadrinho(titulo, autor, editora, ano, preco)
-        self.conta.append(quadrinho)
+
+        self.cursor.execute("""
+        INSERT INTO quadrinhos (titulo, autor, editora, ano, preco)
+        VALUES (?,?,?,?,?)
+ """, (titulo, autor, editora, ano, preco))
+
+        self.conn.commit()
 
     def listar_quadrinhos(self):
-        if len(self.conta) == 0:
-            print("Nenhum quadrinho cadastrado")
-        else:
-            print("--------Quadrinhos cadastrados:--------")
-            for quadrinho in self.conta:
-                quadrinho.exibir_dados()
-            print("--------------------------------------")
+        self.cursor.execute("SELECT * FROM quadrinhos")
+        dados = self.cursor.fetchall()
+
+        for q in dados:
+            print(q)
 
     def buscar_quadrinho(self):
-        print("\n-------- Buscar Quadrinho --------")
-        nome_busca = input("Digite o título do quadrinho a ser buscado: ")
-        encontrou = False
-       
-        for quadrinho in self.conta:
-            if nome_busca.lower() in quadrinho.titulo.lower():
-                print("\n🔍 Quadrinho Encontrado:")
-                quadrinho.exibir_dados()
-                encontrou = True
+        nome_busca = input("Digite o título: ")
 
-        if not encontrou:
-            print("\n❌ Quadrinho não encontrado.")
+        self.cursor.execute(
+            "SELECT * FROM quadrinho WHERE titulo LIKE ?",
+            ('%' + nome_busca + '%',)
+        )
+
+        resultado = self.cursor.fetchall()
+
+        if len(resultado) == 0:
+            print("Não encontrado")
+        else:
+            for q in resultado:
+                print(q)
 
     def contar_por_editora(self):
         nome_editora = input("Digite o nome da editora: ")
-        contador = 0
 
-        for quadrinho in self.conta:
-            if nome_editora.lower() == quadrinho.editora.lower():
-                print("Nome da editora encontrada")
-                contador += 1
-                quadrinho.exibir_dados()
-                print("-" * 20)
+        self.cursor.execute(
+            "SELECT COUNT(*) FROM quadrinhos WHERE editora = ?",
+            (nome_editora,)
+        )
 
-        if contador > 0:
-            print(f"Você possui {contador} quadrinho(s) da editora {nome_editora}.")
+        resultado = self.cursor. fetchone()
+
+        quantidade = resultado[0]
+
+        if quantidade > 0:
+            print(f"Você possui {quantidade} quadrinho(s) da editora {nome_editora}.")
         else:
-            print("Nenhum quadrinho dessa editora encontrado.")
+            print("Nenhum quadrinho dessa editora encontrado. ")
 
     def vender_quadrinho(self):
         print("\n-------- Venda de Quadrinho --------")
@@ -122,12 +117,17 @@ class Loja:
         print("Preços atualizados com sucesso")
 
     def atualizar_preco_por_titulo(self):
+        id = int(input("ID do quadrinho: "))
         titulo_quadrinho = input("Digite o título do quadrinho: ")
 
         for quadrinho in self.conta:
             if titulo_quadrinho.lower() == quadrinho.titulo.lower():
                 novo_preco = float(input("Digite um novo preço: "))
-                quadrinho.preco = novo_preco
+                self.cursor.execute("""
+                UPDATE quadrinhos
+                SET preco = ?
+                WHERE id = ?
+                """, (novo_preco, id))
                 print("Preço alterado com sucesso!")
                 return  # sai da função quando encontra
 
@@ -189,14 +189,19 @@ class Loja:
 
 
     def apagar_quadrinho(self):
-        if len(self.conta) == 0:
-            print("Nenhum quadrinho cadastrado")
-        else:
-            titulo = input("Digite o título do quadrinho a ser apagado: ")
-            for quadrinho in self.conta:
-                if quadrinho.titulo.lower() == titulo.lower():
-                    self.conta.remove(quadrinho)
-                    print("Quadrinho apagado com sucesso!")
-                    return
-            print("Quadrinho não encontrado.")
+        id = int(input("Digite o ID do quadrinho: "))
+
+        self.cursor.execute("SELECT * FROM quadrinho WHERE ID = ?", (id,))
+        resultado = self.cursor.fetchone()
+
+        if resultado is None:
+            print("Não existe!")
+            return
+
+        confirmar = input("Tem certeza que deseja apagar? (s/n): ")
+
+        if confirmar.lower() == "s":
+            self.cursor.execute("DELETE FROM quadrinho WHERE id = ?", (id,))
+            self.conn.commit()
+            print("Apagado com sucesso!")
 
